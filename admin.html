@@ -1,0 +1,20 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Agenda · Luna</title><meta name="robots" content="noindex"><link rel="stylesheet" href="/style.css"></head><body><main>
+<div class="top"><img src="/logo.png" alt="Luna" style="width:120px"></div><h2 style="text-align:center">Agenda de Luna</h2><div id="v"></div></main>
+<script>
+const $=s=>document.querySelector(s),esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const lab=d=>new Date(d+"T12:00:00Z").toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
+const hh=h=>String(h).padStart(2,"0");let K=sessionStorage.getItem("k")||"";
+async function go(p,b){const r=await fetch("/api/admin/"+p,{method:"POST",headers:{"x-admin":K},body:JSON.stringify(b||{})});if(r.status===401){sessionStorage.removeItem("k");K="";login(K?"":"Contraseña incorrecta");throw 0}return r.json()}
+function login(m){$("#v").innerHTML=`${m?`<div class="err">${m}</div>`:""}<div class="card"><input type="password" id="pw" placeholder="Contraseña"><button class="btn" id="en">Entrar</button></div>`;$("#en").onclick=()=>{K=$("#pw").value;sessionStorage.setItem("k",K);load()}}
+async function load(){try{const d=await go("agenda");const l=d.bookings.filter(b=>b.date>=d.today).sort((a,b)=>(a.date+hh(a.time)).localeCompare(b.date+hh(b.time)));let h="",last="";
+ if(!l.length)h=`<div class="card mu">No hay turnos próximos.</div>`;
+ l.forEach(b=>{if(b.date!==last){h+=`<h2>${lab(b.date)}</h2>`;last=b.date}
+  h+=`<div class="card"><b>${hh(b.time)}:00 hs · ${esc(b.name)}</b><br>${esc(b.sn)}<br><a href="https://wa.me/${esc(b.tel.replace(/\D/g,""))}" target="_blank" rel="noopener">${esc(b.tel)}</a>${b.gift?`<br><b>🎁 Gift card:</b> ${esc(b.gift)}`:""}<br><button class="x" data-c="${b.id}">Cancelar turno</button></div>`});
+ const bl=d.blocks.filter(k=>k.slice(0,10)>=d.today).sort();
+ h+=`<h2>Bloquear horario</h2><div class="card"><input type="date" id="bd"><select id="bh"><option>8</option><option>14</option><option>16</option></select><button class="btn" id="bb">Bloquear</button><button class="btn alt" id="bu">Desbloquear</button>${bl.length?`<p class="mu">Bloqueados: ${bl.map(k=>k.slice(8,10)+"/"+k.slice(5,7)+" "+k.slice(11)+"hs").join(" · ")}</p>`:""}</div>`;
+ $("#v").innerHTML=h;
+ document.querySelectorAll("[data-c]").forEach(b=>b.onclick=async()=>{if(confirm("¿Cancelar este turno?")){await go("cancel",{id:b.dataset.c});load()}});
+ const blk=on=>async()=>{if(!$("#bd").value)return alert("Elegí una fecha");await go("block",{date:$("#bd").value,time:+$("#bh").value,on});load()};$("#bb").onclick=blk(true);$("#bu").onclick=blk(false)}catch(e){}}
+K?load():login("");
+</script></body></html>
