@@ -7,8 +7,9 @@ const addDays = (d, n) => new Date(new Date(d + "T12:00:00Z").getTime() + n * 86
 const dow = d => new Date(d + "T12:00:00Z").getUTCDay();
 const sk = (d, t) => `s:${d}_${String(t).padStart(2, "0")}`;
 const okSlot = (date, time) => { const n = ar(); if (!/^\d{4}-\d\d-\d\d$/.test(date || "")) return false; if (date < n.d || date > addDays(n.d, CFG.dias - 1)) return false; if (date === n.d && +time <= n.h) return false; return (CFG.horarios[dow(date)] || []).includes(+time); };
+const claim = async (s, key, id) => { if ((await s.get(key)) !== null) return false; await s.set(key, id); return (await s.get(key)) === id; };
 const okId = i => /^[a-f0-9]{10}$/.test(i || "");
-export default async (req) => {
+const run = async (req) => {
   const r = new URL(req.url).pathname.replace(/^\/api\//, "");
   const s = getStore({ name: "turnos", consistency: "strong" });
   const q = new URL(req.url).searchParams;
@@ -21,16 +22,14 @@ export default async (req) => {
     const sv = CFG.servicios.find(x => x.id === b.servicio), name = String(b.name || "").trim().slice(0, 60), tel = String(b.tel || "").trim().slice(0, 30);
     if (!sv || !name || tel.replace(/\D/g, "").length < 8 || !okSlot(b.date, b.time)) return J({ error: "Datos inválidos" }, 400);
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    const w = await s.set(sk(b.date, b.time), id, { onlyIfNew: true });
-    if (!w.modified) return J({ error: "Ese horario ya fue tomado. Elegí otro." }, 409);
+    if (!(await claim(s, sk(b.date, b.time), id))) return J({ error: "Ese horario ya fue tomado. Elegí otro." }, 409);
     const bk = { id, name, tel, servicio: sv.id, sn: sv.n, p: sv.p, date: b.date, time: +b.time, gift: String(b.gift || "").trim().slice(0, 60), at: Date.now() };
     await s.setJSON("b:" + id, bk); return J(bk);
   }
   if (r === "move") {
     const k = okId(b.id) && await s.get("b:" + b.id, { type: "json" });
     if (!k || !okSlot(b.date, b.time)) return J({ error: "No se pudo cambiar" }, 400);
-    const w = await s.set(sk(b.date, b.time), k.id, { onlyIfNew: true });
-    if (!w.modified) return J({ error: "Ese horario ya fue tomado. Elegí otro." }, 409);
+    if (!(await claim(s, sk(b.date, b.time), k.id))) return J({ error: "Ese horario ya fue tomado. Elegí otro." }, 409);
     await s.delete(sk(k.date, k.time)); k.date = b.date; k.time = +b.time; await s.setJSON("b:" + k.id, k); return J(k);
   }
   if (r === "cancel") return (await cancel(b.id)) ? J({ ok: 1 }) : J({ error: "No existe" }, 404);
@@ -45,9 +44,11 @@ export default async (req) => {
     if (r === "admin/cancel") return J({ ok: await cancel(b.id) });
     if (r === "admin/block") {
       if (!/^\d{4}-\d\d-\d\d$/.test(b.date || "")) return J({ error: "Fecha inválida" }, 400);
-      if (b.on) { const w = await s.set(sk(b.date, b.time), "block", { onlyIfNew: true }); return J({ ok: w.modified }); }
+      if (b.on) { return J({ ok: await claim(s, sk(b.date, b.time), "block") }); }
       if ((await s.get(sk(b.date, b.time))) === "block") await s.delete(sk(b.date, b.time)); return J({ ok: 1 });
     }
   }
   return J({ error: "No encontrado" }, 404);
 };
+
+export default async (req) => { try { return await run(req); } catch (e) { return J({ error: "Error del servidor: " + (e && e.message || e) }, 500); } };
